@@ -17,10 +17,10 @@ int sense_state;
 int last_sense_reading = LOW;
 long last_sense_time = 0;
 
-int mix_but = 9;
-int mix_state;
-int last_mix_reading = LOW;
-long last_mix_time = 0;
+int cal_but = 9;
+int cal_state;
+int last_cal_reading = LOW;
+long last_cal_time = 0;
 
 long debounce_delay = 50;
 
@@ -31,6 +31,8 @@ int color[3];
 
 int sol_pin1 = 10;
 
+Servo syringe_servo;
+
 void setup()
 {
   Serial.begin(9600);
@@ -40,7 +42,7 @@ void setup()
   pinMode(LED, OUTPUT);
 
   //user control buttons
-  pinMode(mix_but, INPUT);
+  pinMode(cal_but, INPUT);
   pinMode(sense_but, INPUT);
 
   //color mode selection
@@ -55,6 +57,8 @@ void setup()
   pinMode(S1, OUTPUT); //S1 pinA
 
   pinMode(sol_pin1, OUTPUT);
+
+  syringe_servo.attach(12);
 
   readEE(black, 0);     //Read previous calibtration data, if there is any
   readEE(white, 1);
@@ -80,14 +84,14 @@ void readEE(int *thing, int pos){       //Read from pos and put that value in th
 void loop()
 {
   int sense_reading = digitalRead(sense_but);   //Check for user input
-  int mix_reading = digitalRead(mix_but);
+  int cal_reading = digitalRead(cal_but);
   
   if(sense_reading != last_sense_reading){      //Debounce
     last_sense_time = millis();
   }
   
-  if(mix_reading != last_mix_reading){
-    last_mix_time = millis();
+  if(cal_reading != last_cal_reading){
+    last_cal_time = millis();
   }
   
   if(millis()-last_sense_time > debounce_delay && sense_reading != sense_state){      //If the sense button is pressed, check the value on the sensor
@@ -97,16 +101,16 @@ void loop()
     }
   }
 
-  else if(millis()-last_mix_time > debounce_delay && mix_reading != mix_state){       //If the calibrate button is pressed, run calibration sequence
-    mix_state = mix_reading;
-    if(mix_state == HIGH){
+  else if(millis()-last_cal_time > debounce_delay && cal_reading != cal_state){       //If the calibrate button is pressed, run calibration sequence
+    cal_state = cal_reading;
+    if(cal_state == HIGH){
       calibrate();
     }
   }
 
-//  else if(millis()-last_mix_time > debounce_delay && mix_reading != mix_state){       //Mixing button
-//    mix_state = mix_reading;
-//    if(mix_state == HIGH){
+//  else if(millis()-last_cal_time > debounce_delay && cal_reading != cal_state){       //Mixing button
+//    cal_state = cal_reading;
+//    if(cal_state == HIGH){
 //      digitalWrite(sol_pin1, HIGH);
 //    }
 //    else{
@@ -115,7 +119,7 @@ void loop()
 //  }
   
   last_sense_reading = sense_reading;
-  last_mix_reading = mix_reading;
+  last_cal_reading = cal_reading;
 }
 
 void calibrate()    //Get and print values for black and white swatches
@@ -210,3 +214,16 @@ void taosMode(byte mode) {
   digitalWrite(S1, B00000001 & mode);
   digitalWrite(S0, B00000010 & mode);
 }
+
+void pen_write(int sol){
+  int valve_time = 1000;
+  int syringe_baseline = 0;
+  int syringe_final = 20;
+  digitalWrite(sol, HIGH);
+  delay(valve_time);
+  digitalWrite(sol, LOW);
+  syringe_servo.write(syringe_baseline);
+  delay(10);
+  syringe_servo.write(syringe_final);
+}
+
