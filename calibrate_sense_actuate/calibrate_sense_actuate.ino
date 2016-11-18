@@ -1,112 +1,69 @@
 #include <EEPROM.h>
 #include <Servo.h>
 
-int S0 = 7;   //Settings pins
+int S0 = 7;   //Frequency output settings pins
 int S1 = 6;
-int S2 = 5;
+int S2 = 5;   //Color filter selection pins
 int S3 = 4;
-
 int taosOutPin = 3;   //Output pin; outputs square wave w/frequency proportional to light intensity
-
 int green_LED = 11;   //User interface LEDS
+int LED = 2;          //Lighting-up LED on color sensor
+int sense_but = 8;    //User input buttons
+int cal_but = 9;
+int sol_pin1 = 10;    //Solenoid valve pin
+int syringe_servo_pin = 12;     //Pin for servo
+Servo syringe_servo;      //Initialize servo to control syringe
 
-int LED = 2;
-
-int sense_but = 8;    //User input buttons and debounce variables
-int sense_state;
+int sense_state;        //Button debounce variables
 int last_sense_reading = LOW;
 long last_sense_time = 0;
-
-int cal_but = 9;
 int cal_state;
 int last_cal_reading = LOW;
 long last_cal_time = 0;
-
 long debounce_delay = 50;
 
 int black[3];   //Black calibration data; returns as an unsigned long, but the value is never greater than 255 if things are working
 int white[3];   //White calibration data
+int color[3];   //Color data
 
-int color[3];
-
-int sol_pin1 = 10;
-
-Servo syringe_servo;
-
-void setup()
-{
+void setup(){
   Serial.begin(9600);
-
-  //initialize feedback LEDs
-  pinMode(green_LED, OUTPUT);
+  
+  pinMode(green_LED, OUTPUT);   //Initialize pins
   pinMode(LED, OUTPUT);
-
-  //user control buttons
   pinMode(cal_but, INPUT);
   pinMode(sense_but, INPUT);
-
-  //color mode selection
-  pinMode(S2, OUTPUT); //S2 pinE
-  pinMode(S3, OUTPUT); //s3 pinF
-
-  //color response pin
-  pinMode(taosOutPin, INPUT); //taosOutPin pinC
-
-  //communication freq (sensitivity) selection
-  pinMode(S0, OUTPUT); //S0 pinB
-  pinMode(S1, OUTPUT); //S1 pinA
-
+  pinMode(S2, OUTPUT);
+  pinMode(S3, OUTPUT);
+  pinMode(taosOutPin, INPUT);
+  pinMode(S0, OUTPUT);
+  pinMode(S1, OUTPUT);
   pinMode(sol_pin1, OUTPUT);
 
-  syringe_servo.attach(12);
+  syringe_servo.attach(syringe_servo_pin);     //Attach servo to digital
 
-  readEE(black, 0);     //Read previous calibtration data, if there is any
-  readEE(white, 1);
-}
+  readEE(black, 0);     //Read previous calibtration data
+  readEE(white, 1);}     //Convention is that black is stored in the first position in the EEPROM and white is stored in the second
 
-void writeEE(int *thing, int pos){     //Write RGB value thing to the EEPROM, where pos is which position to write to (e.g. 0th, 1st, 2nd, etc.)
-  for(int i=0; i<3; i++){
-    byte one = (thing[i] >> 8)&0xFF;    //Find most significant byte
-    byte two = (thing[i])&0xFF;
-    EEPROM.write(pos*6+i*2, one);         //Store big endian
-    EEPROM.write(pos*6+i*2+1, two);   
-  }
-}
-
-void readEE(int *thing, int pos){       //Read from pos and put that value in thing.
-  for(int i=0; i<3; i++){
-    int one = EEPROM.read (pos*6+i*2);    //Find first byte
-    int two = EEPROM.read(pos*6+i*2+1);   //Find second byte
-    thing[i] = (one << 8) + two;        //Make it into a two-byte int type! Then store it
-  }
-}
-
-void loop()
-{
+void loop(){
   int sense_reading = digitalRead(sense_but);   //Check for user input
   int cal_reading = digitalRead(cal_but);
   
   if(sense_reading != last_sense_reading){      //Debounce
-    last_sense_time = millis();
-  }
+    last_sense_time = millis();}
   
   if(cal_reading != last_cal_reading){
-    last_cal_time = millis();
-  }
+    last_cal_time = millis();}
   
   if(millis()-last_sense_time > debounce_delay && sense_reading != sense_state){      //If the sense button is pressed, check the value on the sensor
     sense_state = sense_reading;
     if(sense_state == HIGH){
-      senseColor();
-    }
-  }
+      senseColor();}}
 
   else if(millis()-last_cal_time > debounce_delay && cal_reading != cal_state){       //If the calibrate button is pressed, run calibration sequence
     cal_state = cal_reading;
     if(cal_state == HIGH){
-      calibrate();
-    }
-  }
+      calibrate();}}
 
 //  else if(millis()-last_cal_time > debounce_delay && cal_reading != cal_state){       //Mixing button
 //    cal_state = cal_reading;
@@ -118,104 +75,90 @@ void loop()
 //    }
 //  }
   
-  last_sense_reading = sense_reading;
-  last_cal_reading = cal_reading;
-}
+  last_sense_reading = sense_reading;         //Store current readings
+  last_cal_reading = cal_reading;}
 
-void calibrate()    //Get and print values for black and white swatches
-{
+void calibrate(){    //Get and print values for black and white swatches
  colorRead(black);
  colorRead(white);
- writeEE(black, 0);     //Store black in the 0th position in the EEPROM
- writeEE(white, 1);
-}
+ writeEE(black, 0);     //Store calibration values in EEPROM
+ writeEE(white, 1);}
 
-void senseColor()         //Detect and print a color normalized for the current calibration values
-{
+void senseColor(){         //Detect and serial print a color normalized for the current calibration values
   colorRead(color);     //Read the current color
   float norm_color[3];
   for(int i = 0; i<3; i++){
-    norm_color[i] = (float)(black[i]-color[i])/(float)(black[i]-white[i]);
-    Serial.print(norm_color[i]);
-    Serial.print(' ');
-  }
+    norm_color[i] = (float)(black[i]-color[i])/(float)(black[i]-white[i]);      //Normalize color reading
+    Serial.print(norm_color[i]);      //Print to serial terminal
+    Serial.print(' ');}
   Serial.print('\n');
-  if(norm_color[0]>1.5*norm_color[1] && norm_color[0]>1.5*norm_color[2]){
-    digitalWrite(sol_pin1, HIGH);
-    delay(4000);
-    digitalWrite(sol_pin1, LOW);
-  }
-}
 
-void colorRead(int *thing)    //Sets the values of thing to each color reading in ms. Thing is an unsigned long array {R, G, B}
-{
+void colorRead(int *thing){    //Sets the values of thing to each color reading in ms. Thing is an int array {R, G, B}
   for(int i = 0; i < 10; i++){         //Blink to tell the person they need to get it over the color
     digitalWrite(green_LED, HIGH);
     delay(200);
     digitalWrite(green_LED, LOW);
-    delay(200);
-  }
+    delay(200);}
   
-  digitalWrite(green_LED, HIGH);     //Taking measurement
-  digitalWrite(LED, HIGH);
+  digitalWrite(green_LED, HIGH);     //Signal that you're taking measurement
+  digitalWrite(LED, HIGH);          //Turn on measurement LED
   delay(500);                        //Hold that light on for 1 sec total + computation time
 
   taosMode(2);    //turn on sensor
 
-  //setting for a delay to let the sensor sit for a moment before taking a reading.
-  int sensorDelay = 10;
+  int sensorDelay = 10;     //Setting for a delay to let the sensor sit for a moment before taking a reading.
+  int nun_readings = 10;    //Number of samples to take for each color
   byte color_selects[3] = {B00000000, B00000011, B00000010};       //The different bitmasks R G B on pins S2 and S3
   for(int k=0; k < 3; k++){
     digitalWrite(S2, color_selects[k]&B00000001);         //Select color filter
     digitalWrite(S3, color_selects[k]&B00000010);
     
-    int reading[10];        //Sum 10 readings
-    for(int j=0; j < 10; j++){
-      int readPulse = pulseIn(taosOutPin, LOW, 8000);      //Returns how long taosOutPin remains low or 80000 in ms; essentially period/2
+    int reading[num_readings];        //Record num_readings readings
+    for(int j=0; j < num_readings; j++){
+      int readPulse = pulseIn(taosOutPin, LOW, 8000);      //Returns how long taosOutPin remains low (period/2) or 80000 in ms
       if(readPulse < .1){     //Fixes timeout behavior; instead of returning a 0, it'll return an 80000
-        readPulse = 8000;
-      }
-//      Serial.println(readPulse);
+        readPulse = 8000;}
       reading[j] = readPulse;
-      delay(sensorDelay);
-    }
-//    Serial.println(' ');
-    int most_common = -1, max_frequency = 0;
-    for(int i=0; i<10; i++){
-      if(reading[i] != -1){
-        int frequency = 1;
-        for(int j=i+1; j<10; j++){
-          if(reading[i] == reading[j]){
+      delay(sensorDelay);}
+      
+    int most_common = -1, max_frequency = 0;      //Code to find mode of reading; maybe inefficient, but there are only 10 values and they're not often scrolled through
+    for(int i=0; i<num_readings; i++){
+      if(reading[i] != -1){       //-1 is a placeholder for "don't count this"
+        int frequency = 1;        //Register that there was one instance of this number
+        for(int j=i+1; j<num_readings; j++){    //Scroll through all remaining numbers
+          if(reading[i] == reading[j]){       //Register that there was another value of that number, then turn that instance into a -1
             frequency+=1;
-            reading[j] = -1;
-          }
-        }
-        if(frequency > max_frequency){
+            reading[j] = -1;}}
+        if(frequency > max_frequency){      //If it's more common than the previous most_common number, set this one to the most common
           most_common = reading[i];
-          max_frequency = frequency;
-        }
-      }
-    }
-    thing[k] = most_common;
-  }
+          max_frequency = frequency;}}}
+    thing[k] = most_common;}                //Return the mode
+    
   taosMode(0);        //turn off sensor to save energy
-  delay(500);         //Keep light on
-  digitalWrite(green_LED, LOW);
-  digitalWrite(LED, LOW);
-}
+  delay(500);         //Keep feedback LED on
+  digitalWrite(green_LED, LOW);     //Turn off LEDs
+  digitalWrite(LED, LOW);}
 
-// Operation modes, controlled by hi/lo settings on S0 and S1 pins.
-//setting mode to zero will put taos into low power mode. taosMode(0);
-//To-do; allow controlling the sensor LED w/mode
+void writeEE(int *thing, int pos){     //Write RGB value thing to the EEPROM, where pos is which position to write to (e.g. 0th, 1st, 2nd, etc.)
+  for(int i=0; i<3; i++){
+    byte one = (thing[i] >> 8)&0xFF;    //Find most significant byte
+    byte two = (thing[i])&0xFF;
+    EEPROM.write(pos*6+i*2, one);         //Store big endian
+    EEPROM.write(pos*6+i*2+1, two;}}
 
-void taosMode(byte mode) {
+void readEE(int *thing, int pos){       //Read from pos and put that value in thing.
+  for(int i=0; i<3; i++){
+    int one = EEPROM.read (pos*6+i*2);    //Find first byte
+    int two = EEPROM.read(pos*6+i*2+1);   //Find second byte
+    thing[i] = (one << 8) + two;}}        //Make it into a two-byte int type! Then put it in the array thing
+
+void taosMode(byte mode){       //Set operation mode
   //Mode 0 -> Powerdown, 1 -> 2% output freq scaling
   //2 -> 20% output freq scaling, 3 -> 100% scaling (highest sensitivity
   digitalWrite(S1, B00000001 & mode);
-  digitalWrite(S0, B00000010 & mode);
-}
+  digitalWrite(S0, B00000010 & mode);}
 
-void pen_write(int sol){
+void pen_write(int sol){        //Wrapper code for whatever is needed to get the right color ink into the pen.
   int valve_time = 1000;
   int syringe_baseline = 0;
   int syringe_final = 20;
@@ -224,6 +167,4 @@ void pen_write(int sol){
   digitalWrite(sol, LOW);
   syringe_servo.write(syringe_baseline);
   delay(10);
-  syringe_servo.write(syringe_final);
-}
-
+  syringe_servo.write(syringe_final);}
