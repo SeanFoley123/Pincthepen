@@ -10,8 +10,12 @@ int green_LED = 11;   //User interface LEDS
 int LED = 2;          //Lighting-up LED on color sensor
 int sense_but = 8;    //User input buttons
 int cal_but = 9;
-int sol_pin1 = 10;    //Solenoid valve pin
-int syringe_servo_pin = 12;     //Pin for servo
+int sol_pin1 = 10;    //Solenoid valve pins; NEVER ACTIVATE MORE THAN ONE AT A TIME
+int sol_pin2 = 12;    //Water solenoid
+int sol_pin3 = A4;
+int sol_pin4 = A5;
+int solenoids[4] = {sol_pin1, sol_pin3, sol_pin4, sol_pin2};     //Water is the last one
+int syringe_servo_pin = 13;     //Pin for servo
 Servo syringe_servo;      //Initialize servo to control syringe
 
 int sense_state;        //Button debounce variables
@@ -39,6 +43,9 @@ void setup(){
   pinMode(S0, OUTPUT);
   pinMode(S1, OUTPUT);
   pinMode(sol_pin1, OUTPUT);
+  pinMode(sol_pin2, OUTPUT);
+  pinMode(sol_pin3, OUTPUT);
+  pinMode(sol_pin4, OUTPUT);
 
   syringe_servo.attach(syringe_servo_pin);     //Attach servo to digital
 
@@ -60,10 +67,10 @@ void loop(){
     if(sense_state == HIGH){
       senseColor();}}
 
-  else if(millis()-last_cal_time > debounce_delay && cal_reading != cal_state){       //If the calibrate button is pressed, run calibration sequence
-    cal_state = cal_reading;
-    if(cal_state == HIGH){
-      calibrate();}}
+//  else if(millis()-last_cal_time > debounce_delay && cal_reading != cal_state){       //If the calibrate button is pressed, run calibration sequence
+//    cal_state = cal_reading;
+//    if(cal_state == HIGH){
+//      calibrate();}}
 
 //  else if(millis()-last_cal_time > debounce_delay && cal_reading != cal_state){       //Mixing button
 //    cal_state = cal_reading;
@@ -92,6 +99,7 @@ void senseColor(){         //Detect and serial print a color normalized for the 
     Serial.print(norm_color[i]);      //Print to serial terminal
     Serial.print(' ');}
   Serial.print('\n');
+  pump_ink(sol_pin2);}
 
 void colorRead(int *thing){    //Sets the values of thing to each color reading in ms. Thing is an int array {R, G, B}
   for(int i = 0; i < 10; i++){         //Blink to tell the person they need to get it over the color
@@ -107,7 +115,7 @@ void colorRead(int *thing){    //Sets the values of thing to each color reading 
   taosMode(2);    //turn on sensor
 
   int sensorDelay = 10;     //Setting for a delay to let the sensor sit for a moment before taking a reading.
-  int nun_readings = 10;    //Number of samples to take for each color
+  int num_readings = 10;    //Number of samples to take for each color
   byte color_selects[3] = {B00000000, B00000011, B00000010};       //The different bitmasks R G B on pins S2 and S3
   for(int k=0; k < 3; k++){
     digitalWrite(S2, color_selects[k]&B00000001);         //Select color filter
@@ -144,7 +152,7 @@ void writeEE(int *thing, int pos){     //Write RGB value thing to the EEPROM, wh
     byte one = (thing[i] >> 8)&0xFF;    //Find most significant byte
     byte two = (thing[i])&0xFF;
     EEPROM.write(pos*6+i*2, one);         //Store big endian
-    EEPROM.write(pos*6+i*2+1, two;}}
+    EEPROM.write(pos*6+i*2+1, two);}}
 
 void readEE(int *thing, int pos){       //Read from pos and put that value in thing.
   for(int i=0; i<3; i++){
@@ -158,13 +166,24 @@ void taosMode(byte mode){       //Set operation mode
   digitalWrite(S1, B00000001 & mode);
   digitalWrite(S0, B00000010 & mode);}
 
-void pen_write(int sol){        //Wrapper code for whatever is needed to get the right color ink into the pen.
-  int valve_time = 1000;
-  int syringe_baseline = 0;
-  int syringe_final = 20;
-  digitalWrite(sol, HIGH);
-  delay(valve_time);
-  digitalWrite(sol, LOW);
+void pen_write(){        //Wrapper code for whatever is needed to get the right color ink into the pen.
+  int which_pin = -1;     //Stores the pin of the most prominent color
+  int value = -1.0;         //Stores the value of that color
+  for(int i = 0; i<3; i++){
+    if((float)(black[i]-color[i])/(float)(black[i]-white[i])>value){
+      which_pin = i;
+      value = (float)(black[i]-color[i])/(float)(black[i]-white[i]);}}      //Normalize color reading
+  int correct_sol = solenoids[which_pin];
+  pump_ink(solenoids[3]);      //Flush with water
+  pump_ink(correct_sol);}
+
+void pump_ink(int sol){
+  int valve_time = 1000;        //How long the valve is open
+  int syringe_baseline = 0;     //Resting position of syringe
+  int syringe_final = 90;       //Pushed position
   syringe_servo.write(syringe_baseline);
-  delay(10);
-  syringe_servo.write(syringe_final);}
+  digitalWrite(sol, HIGH);
+  for(int i=0; i<90; i += 3){
+    syringe_servo.write(i);}
+    delay(5);
+  digitalWrite(sol, LOW);}      //Pump servo
